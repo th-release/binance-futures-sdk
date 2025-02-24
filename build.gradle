@@ -1,0 +1,48 @@
+plugins {
+    id 'java'
+    id 'java-library'
+    id 'maven-publish'
+    id 'io.spring.dependency-management' version '1.1.4'
+    id 'org.springframework.boot' version '3.2.1' // Spring Boot 플러그인 추가
+}
+
+group = 'xyz.cth-core'
+version = '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.apache.commons:commons-dbcp2:2.9.0'
+    implementation 'com.googlecode.log4jdbc:log4jdbc:1.2'
+    implementation 'com.google.code.gson:gson:2.10.1'
+
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+    implementation 'jakarta.annotation:jakarta.annotation-api:2.1.1'
+    implementation 'org.apache.commons:commons-compress:1.26.0'
+    implementation 'com.google.code.findbugs:jsr305:3.0.2'
+
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+
+    testImplementation platform('org.junit:junit-bom:5.10.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+}
+
+jar {
+    enabled = true
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+        }
+    }
+}
+
+test {
+    useJUnitPlatform()
+}
