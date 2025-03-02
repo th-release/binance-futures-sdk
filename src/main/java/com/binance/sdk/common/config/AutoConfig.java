@@ -9,6 +9,6 @@ import com.binance.sdk.common.Properties.BinanceProperties;
 @Configuration
 @EnableConfigurationProperties({BinanceProperties.class})
 @RequiredArgsConstructor
-@ComponentScan(basePackages = "xyz.cth.sdk")
+@ComponentScan(basePackages = "com.binance.sdk")
 public class AutoConfig {
 }
