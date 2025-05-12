@@ -1,20 +1,20 @@
 package com.binance.sdk.common.dto.ticker;
 
 import com.google.gson.annotations.Expose;
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 @Getter
 @Setter
-@Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class Ticker {
+public class TickerResponse {
     @Expose
     private String symbol;
     @Expose
-    private double price;
-    @Expose
-    private String priceString;
+    private String price;
     @Expose
     private long time;
 }

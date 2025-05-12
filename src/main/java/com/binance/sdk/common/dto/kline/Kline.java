@@ -1,11 +1,13 @@
 package com.binance.sdk.common.dto.kline;
 
 import com.google.gson.annotations.Expose;
-import lombok.Builder;
-import lombok.Getter;
+import lombok.*;
 
 @Getter
+@Setter
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class Kline {
     @Expose
     private long openTime;

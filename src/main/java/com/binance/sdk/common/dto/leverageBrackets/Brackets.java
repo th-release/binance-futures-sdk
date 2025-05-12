@@ -9,5 +9,5 @@ public class Brackets {
     private int notionalCap;
     private int notionalFloor;
     private double maintMarginRatio;
-    private int cum;
+    private double cum;
 }

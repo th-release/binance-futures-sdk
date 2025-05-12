@@ -1,5 +1,6 @@
 package com.binance.sdk.common.binance;
 
+import com.binance.sdk.common.dto.ticker.Ticker;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
@@ -13,7 +14,7 @@ import com.binance.sdk.common.dto.exchangeInformation.ExchangeInformation;
 import com.binance.sdk.common.dto.kline.Kline;
 import com.binance.sdk.common.dto.setLeverage.SetLeverageRequest;
 import com.binance.sdk.common.dto.setLeverage.SetLeverageResponse;
-import com.binance.sdk.common.dto.ticker.Ticker;
+import com.binance.sdk.common.dto.ticker.TickerResponse;
 
 import java.lang.reflect.Type;
 import java.util.ArrayList;
@@ -86,7 +87,14 @@ public class Market {
             }
 
             String responseData = Objects.requireNonNull(response.body()).string();
-            return tickerFromJson(responseData);
+            TickerResponse ticker = tickerFromJson(responseData);
+
+            return Ticker.builder()
+                    .price(Double.parseDouble(ticker.getPrice()))
+                    .priceString(ticker.getPrice())
+                    .symbol(symbol)
+                    .time(ticker.getTime())
+                    .build();
         } catch (Exception e) {
             if (binanceProperties.isLogging()) {
                 System.out.println("Ticker Exception: " + e.getMessage());
@@ -110,7 +118,14 @@ public class Market {
             }
 
             String responseData = Objects.requireNonNull(response.body()).string();
-            return tickerFromJson(responseData);
+            TickerResponse ticker = tickerFromJson(responseData);
+
+            return Ticker.builder()
+                    .price(Double.parseDouble(ticker.getPrice()))
+                    .priceString(ticker.getPrice())
+                    .symbol(symbol)
+                    .time(ticker.getTime())
+                    .build();
         } catch (Exception e) {
             if (binanceProperties.isLogging()) {
                 System.out.println("Ticker Exception: " + e.getMessage());
@@ -119,12 +134,12 @@ public class Market {
         }
     }
 
-    private Ticker tickerFromJson(String json) {
+    private TickerResponse tickerFromJson(String json) {
         Gson gson = new GsonBuilder().
                 excludeFieldsWithoutExposeAnnotation().
                 create();
 
-        return gson.fromJson(json, Ticker.class);
+        return gson.fromJson(json, TickerResponse.class);
     }
 
     public List<Kline> kline(
