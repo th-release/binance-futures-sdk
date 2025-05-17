@@ -17,7 +17,6 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.apache.commons:commons-dbcp2:2.9.0'
     implementation 'com.googlecode.log4jdbc:log4jdbc:1.2'
-    implementation 'com.google.code.gson:gson:2.10.1'
 
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
@@ -25,7 +24,10 @@ dependencies {
     implementation 'org.apache.commons:commons-compress:1.26.0'
     implementation 'com.google.code.findbugs:jsr305:3.0.2'
 
+    implementation 'com.google.code.gson:gson:2.10.1'
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+
+    implementation 'org.java-websocket:Java-WebSocket:1.5.3'
 
     testImplementation platform('org.junit:junit-bom:5.10.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'
