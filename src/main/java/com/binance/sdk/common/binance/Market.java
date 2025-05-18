@@ -1,13 +1,20 @@
 package com.binance.sdk.common.binance;
 
+import com.binance.sdk.common.dto.socketKline.SocketKline;
 import com.binance.sdk.common.dto.ticker.Ticker;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
+import org.java_websocket.client.WebSocketClient;
+import org.java_websocket.handshake.ServerHandshake;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import com.binance.sdk.common.Properties.BinanceProperties;
 import com.binance.sdk.common.dto.exchangeInformation.ExchangeInformation;
@@ -17,16 +24,27 @@ import com.binance.sdk.common.dto.setLeverage.SetLeverageResponse;
 import com.binance.sdk.common.dto.ticker.TickerResponse;
 
 import java.lang.reflect.Type;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.nio.ByteBuffer;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class Market {
 
     private final BinanceProperties binanceProperties;
     private final Api binanceApi;
+    private final Map<String, BinanceKlineWebSocketClient> clients = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService heartbeatScheduler = Executors.newScheduledThreadPool(4);
+    public record SocketKlineCallbackArgs(String id, SocketKline kline) {}
 
     public ExchangeInformation exchangeInformation() {
         OkHttpClient client = new OkHttpClient();
@@ -215,5 +233,143 @@ public class Market {
 
     public BinanceResponse<SetLeverageResponse> setLeverage(SetLeverageRequest request) {
         return binanceApi.sendRequest("/fapi/v1/leverage", "POST", request, SetLeverageResponse.class);
+    }
+
+    public class BinanceKlineWebSocketClient extends WebSocketClient {
+        private final String url;
+        private final String id;
+        private SocketKline kline;
+        private final Consumer<SocketKlineCallbackArgs> callback;
+
+        public BinanceKlineWebSocketClient(URI serverUri, String id, Consumer<SocketKlineCallbackArgs> callback) {
+            super(serverUri);
+            this.url = serverUri.toString();
+            this.id = id;
+            this.callback = callback;
+        }
+
+        @Override
+        public void onOpen(ServerHandshake handshakedata) {
+            if (binanceProperties.isLogging()) {
+                log.info("Connected to Binance WebSocket [ID: id: {}, URL: {}]", id, url);
+            }
+        }
+
+        @Override
+        @Async
+        public void onMessage(String message) {
+            Gson gson = new Gson();
+            com.binance.sdk.common.dto.socketKline.Response socketResponse = gson.fromJson(message, com.binance.sdk.common.dto.socketKline.Response.class);
+
+            this.kline = socketResponse.getData();
+            callback.accept(new SocketKlineCallbackArgs(id, kline));
+        }
+
+        @Override
+        public void onClose(int code, String reason, boolean remote) {
+            if (binanceProperties.isLogging()) {
+                log.info("Disconnected from Binance WebSocket [ID: {}]: {} (Code: {} Remote:{}", id, reason, code, remote);
+            }
+        }
+
+        @Override
+        public void onError(Exception ex) {
+            if (binanceProperties.isLogging()) {
+                log.error("Error occurred [ID: {}] {}", id, ex.toString());
+            }
+        }
+
+        public void checkHeartbeat() {
+            try {
+                if (isOpen()) {
+                    sendPing();
+                    if (binanceProperties.isLogging()) {
+                        log.info("Ping sent [ID: {}]", id);
+                    }
+                } else {
+                    if (binanceProperties.isLogging()) {
+                        log.warn("Connection already closed [ID: {}]\nReconnecting...", id);
+                    }
+                    this.reconnect();
+                }
+            } catch (Exception e) {
+                if (binanceProperties.isLogging()) {
+                    log.error("Heartbeat error [ID: {}], {}", id, e.getMessage());
+                }
+                closeConnection(1000, "Heartbeat failure");
+            }
+        }
+    }
+
+    // 허트비트 스케줄러 초기화
+    @PostConstruct
+    public void init() {
+        // 최대 1000개 연결을 위해 4개 스레드로 허트비트 관리
+        heartbeatScheduler.scheduleAtFixedRate(() -> {
+            // 순회 중 제거 문제를 방지하기 위해 복사
+            for (BinanceKlineWebSocketClient client : clients.values().toArray(new BinanceKlineWebSocketClient[0])) {
+                try {
+                    client.checkHeartbeat();
+                } catch (Exception e) {
+                    if (binanceProperties.isLogging()) {
+                        log.error("Heartbeat error [ID: {}]: {}", client.id, e.getMessage());
+                    }
+                }
+            }
+        }, 10, 10, TimeUnit.SECONDS);
+    }
+
+    public String createSocketKlineConnection(String symbol, Consumer<SocketKlineCallbackArgs> callback) {
+        try {
+            String id = UUID.randomUUID().toString();
+            URI uri = new URI("wss://fstream.binance.com/stream?streams=" + symbol + "@kline_1d");
+            if (binanceProperties.isLogging()) {
+                log.info("Created connection [ID: {}, URL: {}]", symbol, uri.toString());
+            }
+            BinanceKlineWebSocketClient client = new BinanceKlineWebSocketClient(uri, id, callback);
+            clients.put(id, client);
+            client.connect();
+            return id;
+        } catch (URISyntaxException e) {
+            return null;
+        }
+    }
+
+    public boolean closeSocketKlineConnection(String id) {
+        BinanceKlineWebSocketClient client = clients.get(id);
+        if (client != null) {
+            try {
+                clients.remove(id);
+                client.closeConnection(1000, "Closed by user request");
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+
+
+    @PreDestroy
+    public void shutdownSocketKlineConnections() {
+        clients.values().forEach(client -> {
+            try {
+                client.closeConnection(1000, "Application shutdown");
+            } catch (Exception e) {
+                if (binanceProperties.isLogging()) {
+                    log.error("Error occurred [ID: {}] {}", client.id, e.getMessage());
+                }
+            }
+        });
+        clients.clear();
+        heartbeatScheduler.shutdown();
+        try {
+            if (!heartbeatScheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                heartbeatScheduler.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            heartbeatScheduler.shutdownNow();
+        }
     }
 }
