@@ -34,6 +34,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Component
@@ -42,9 +43,9 @@ public class Market {
 
     private final BinanceProperties binanceProperties;
     private final Api binanceApi;
-    private final Map<String, BinanceKlineWebSocketClient> clients = new ConcurrentHashMap<>();
+    private final Map<String, BinanceCustomWebSocketClient> clients = new ConcurrentHashMap<>();
     private final ScheduledExecutorService heartbeatScheduler = Executors.newScheduledThreadPool(4);
-    public record SocketKlineCallbackArgs(String id, SocketKline kline) {}
+    public record SocketCustomCallbackArgs(String id, String message) {}
 
     public ExchangeInformation exchangeInformation() {
         OkHttpClient client = new OkHttpClient();
@@ -235,13 +236,14 @@ public class Market {
         return binanceApi.sendRequest("/fapi/v1/leverage", "POST", request, SetLeverageResponse.class);
     }
 
-    public class BinanceKlineWebSocketClient extends WebSocketClient {
+    public class BinanceCustomWebSocketClient extends WebSocketClient {
         private final String url;
         private final String id;
-        private SocketKline kline;
-        private final Consumer<SocketKlineCallbackArgs> callback;
+        private String message;
+        private final Consumer<SocketCustomCallbackArgs> callback;
 
-        public BinanceKlineWebSocketClient(URI serverUri, String id, Consumer<SocketKlineCallbackArgs> callback) {
+
+        public BinanceCustomWebSocketClient(URI serverUri, String id, Consumer<SocketCustomCallbackArgs> callback) {
             super(serverUri);
             this.url = serverUri.toString();
             this.id = id;
@@ -258,11 +260,8 @@ public class Market {
         @Override
         @Async
         public void onMessage(String message) {
-            Gson gson = new Gson();
-            com.binance.sdk.common.dto.socketKline.Response socketResponse = gson.fromJson(message, com.binance.sdk.common.dto.socketKline.Response.class);
-
-            this.kline = socketResponse.getData();
-            callback.accept(new SocketKlineCallbackArgs(id, kline));
+            this.message = message;
+            callback.accept(new SocketCustomCallbackArgs(id, this.message));
         }
 
         @Override
@@ -287,10 +286,12 @@ public class Market {
                         log.info("Ping sent [ID: {}]", id);
                     }
                 } else {
-                    if (binanceProperties.isLogging()) {
-                        log.warn("Connection already closed [ID: {}]\nReconnecting...", id);
+                    if (clients.get(id) != null) {
+                        if (binanceProperties.isLogging()) {
+                            log.warn("Connection already closed [ID: {}]\nReconnecting...", id);
+                            this.reconnect();
+                        }
                     }
-                    this.reconnect();
                 }
             } catch (Exception e) {
                 if (binanceProperties.isLogging()) {
@@ -307,7 +308,7 @@ public class Market {
         // 최대 1000개 연결을 위해 4개 스레드로 허트비트 관리
         heartbeatScheduler.scheduleAtFixedRate(() -> {
             // 순회 중 제거 문제를 방지하기 위해 복사
-            for (BinanceKlineWebSocketClient client : clients.values().toArray(new BinanceKlineWebSocketClient[0])) {
+            for (BinanceCustomWebSocketClient client : clients.values().toArray(new BinanceCustomWebSocketClient[0])) {
                 try {
                     client.checkHeartbeat();
                 } catch (Exception e) {
@@ -319,14 +320,19 @@ public class Market {
         }, 10, 10, TimeUnit.SECONDS);
     }
 
-    public String createSocketKlineConnection(String symbol, Consumer<SocketKlineCallbackArgs> callback) {
+    public String createCustomSocketConnection(List<String> actives, Consumer<SocketCustomCallbackArgs> callback) {
         try {
             String id = UUID.randomUUID().toString();
-            URI uri = new URI("wss://fstream.binance.com/stream?streams=" + symbol + "@kline_1d");
+            // example
+            String stream = actives.stream()
+                    .map(String::valueOf)
+                    .collect(Collectors.joining("/"));
+
+            URI uri = new URI("wss://fstream.binance.com/stream?streams=" + stream);
             if (binanceProperties.isLogging()) {
-                log.info("Created connection [ID: {}, URL: {}]", symbol, uri.toString());
+                log.info("Created connection [ID: {}, URL: {}]", id, uri.toString());
             }
-            BinanceKlineWebSocketClient client = new BinanceKlineWebSocketClient(uri, id, callback);
+            BinanceCustomWebSocketClient client = new BinanceCustomWebSocketClient(uri, id, callback);
             clients.put(id, client);
             client.connect();
             return id;
@@ -335,8 +341,8 @@ public class Market {
         }
     }
 
-    public boolean closeSocketKlineConnection(String id) {
-        BinanceKlineWebSocketClient client = clients.get(id);
+    public boolean closeCustomSocketConnection(String id) {
+        BinanceCustomWebSocketClient client = clients.get(id);
         if (client != null) {
             try {
                 clients.remove(id);
@@ -353,6 +359,8 @@ public class Market {
 
     @PreDestroy
     public void shutdownSocketKlineConnections() {
+        clients.clear();
+        heartbeatScheduler.shutdown();
         clients.values().forEach(client -> {
             try {
                 client.closeConnection(1000, "Application shutdown");
@@ -362,8 +370,6 @@ public class Market {
                 }
             }
         });
-        clients.clear();
-        heartbeatScheduler.shutdown();
         try {
             if (!heartbeatScheduler.awaitTermination(5, TimeUnit.SECONDS)) {
                 heartbeatScheduler.shutdownNow();
