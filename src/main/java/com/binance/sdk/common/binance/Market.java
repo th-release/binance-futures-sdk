@@ -1,6 +1,7 @@
 package com.binance.sdk.common.binance;
 
-import com.binance.sdk.common.dto.socketKline.SocketKline;
+import com.binance.sdk.common.dto.depth.Depth;
+import com.binance.sdk.common.dto.ratio.Ratio;
 import com.binance.sdk.common.dto.ticker.Ticker;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -26,13 +27,11 @@ import com.binance.sdk.common.dto.ticker.TickerResponse;
 import java.lang.reflect.Type;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -159,6 +158,107 @@ public class Market {
                 create();
 
         return gson.fromJson(json, TickerResponse.class);
+    }
+
+    public List<Ratio> globalLongShortAccountRatio(String symbol, String period, int limit) {
+        OkHttpClient client = new OkHttpClient();
+
+        Request request = new Request.Builder()
+                .url("https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=" + symbol + "&limit=" + limit + "&period=" + period)
+                .get()
+                .build();
+
+        try(Response response = client.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                if (binanceProperties.isLogging()) {
+                    System.out.println("is not successful || status: " + response.code());
+                    System.out.println(response.body().string());
+                }
+                response.close();
+                return new ArrayList<>();
+            }
+
+            String responseData = response.body().string();
+
+            if (binanceProperties.isLogging()) {
+                System.out.println("response");
+                System.out.println(responseData);
+            }
+
+            return ratioFromJson(responseData);
+        } catch (Exception e) {
+            if (binanceProperties.isLogging()) {
+                System.out.println("orderBook Exception: " + e.getMessage());
+            }
+            return new ArrayList<>();
+        }
+    }
+
+    private List<Ratio> ratioFromJson(String json) {
+        Gson gson = new GsonBuilder()
+                .excludeFieldsWithoutExposeAnnotation()
+                .create();
+
+        Type listType = new TypeToken<List<Depth>>() {}.getType();
+        List<Ratio> ratioList = gson.fromJson(json, listType);
+
+        if (binanceProperties.isLogging()) {
+            System.out.println("orderBook: " + ratioList.size());
+        }
+
+        return ratioList;
+    }
+
+    public List<Depth> orderBook(
+            String symbol,
+            int limit
+    ) {
+        OkHttpClient client = new OkHttpClient();
+
+        Request request = new Request.Builder()
+                .url("https://fapi.binance.com/fapi/v1/trades?symbol=" + symbol +"&limit=" + limit)
+                .get()
+                .build();
+
+        try(Response response = client.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                if (binanceProperties.isLogging()) {
+                    System.out.println("is not successful || status: " + response.code());
+                    System.out.println(response.body().string());
+                }
+                response.close();
+                return new ArrayList<>();
+            }
+
+            String responseData = response.body().string();
+
+            if (binanceProperties.isLogging()) {
+                System.out.println("response");
+                System.out.println(responseData);
+            }
+
+            return orderBookFromJson(responseData);
+        } catch (Exception e) {
+            if (binanceProperties.isLogging()) {
+                System.out.println("orderBook Exception: " + e.getMessage());
+            }
+            return new ArrayList<>();
+        }
+    }
+
+    private List<Depth> orderBookFromJson(String json) {
+        Gson gson = new GsonBuilder()
+                .excludeFieldsWithoutExposeAnnotation()
+                .create();
+
+        Type listType = new TypeToken<List<Depth>>() {}.getType();
+        List<Depth> depthList = gson.fromJson(json, listType);
+
+        if (binanceProperties.isLogging()) {
+            System.out.println("orderBook: " + depthList.size());
+        }
+
+        return depthList;
     }
 
     public List<Kline> kline(
