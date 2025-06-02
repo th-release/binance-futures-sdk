@@ -188,7 +188,7 @@ public class Market {
             return ratioFromJson(responseData);
         } catch (Exception e) {
             if (binanceProperties.isLogging()) {
-                System.out.println("orderBook Exception: " + e.getMessage());
+                System.out.println("ratio Exception: " + e.getMessage());
             }
             return new ArrayList<>();
         }
@@ -199,7 +199,7 @@ public class Market {
                 .excludeFieldsWithoutExposeAnnotation()
                 .create();
 
-        Type listType = new TypeToken<List<Depth>>() {}.getType();
+        Type listType = new TypeToken<List<Ratio>>() {}.getType();
         List<Ratio> ratioList = gson.fromJson(json, listType);
 
         if (binanceProperties.isLogging()) {
